@@ -1,7 +1,11 @@
 """hub.py -- ImagHub and Settings classes
 
 Copyright (c) 2018 by Jeff Bass.
+
 License: MIT, see LICENSE for more details.
+
+19-Apr-2020, Mark.Shumway@swanriver.dev 
+Added support for notifying camwatcher about imagenode startup
 """
 
 import os
@@ -20,9 +24,11 @@ import numpy as np
 import cv2
 import imutils
 from imutils.video import VideoStream
-sys.path.insert(0, '../../imagezmq/imagezmq') # for testing
+#sys.path.insert(0, '../../imagezmq/imagezmq') # for testing
+import zmq
 import imagezmq
 from tools.utils import interval_timer
+from tools.utils import Patience
 from tools.hubhealth import HealthMonitor
 
 class ImageHub:
@@ -123,6 +129,17 @@ class ImageHub:
             # writing image files from image_q is normally done in a thread
             # but for unthreaded testing, uncomment below to write every image
             # self.write_one_image()
+        elif t0 == '$': # command
+            if type == '$CameraUp':
+                msg = 'CameraUp|' + message[2]
+                self.log.info(msg)
+                with Patience(2):
+                    sock = self.image_hub.zmq_context.socket(zmq.REQ)
+                    sock.connect(settings.camwatcher)
+                    sock.send(msg.encode("ascii"))
+                    resp = sock.recv()
+                    sock.close()
+                    return resp
         else:
             log_text = text  # may strip spaces later?
             self.log.info(log_text)
@@ -222,6 +239,9 @@ class Settings:
             self.max_images_write = self.config['hub']['max_images_write']
         else:
             self.max_images_write = 5000
+        if 'camwatcher' in self.config:
+            # TODO support multiple camatchers for resilience 
+            self.camwatcher = self.config['camwatcher']['CW1']
 
     def print_settings(self, title=None):
         """ prints the settings in the yaml file using pprint()
